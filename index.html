@@ -106,10 +106,10 @@
   <div class="card stack">
     <h2>震源あてゲーム</h2>
     <p>過去に実際に起きた地震の震度分布のうち、地図の一部分（青い枠の中）だけを表示します。震源だと思う場所を地図上でクリックしてください。全5問で、震源に近いほど高得点です。1問100点満点で、震源から5km離れるごとに1点減点（500km以上離れると0点）。最終スコアは5問の平均点（100点満点）です。</p>
-    <button data-level="shoshin">初心（震源の近く。枠の中に震源があることも）</button>
-    <button data-level="shokyu">初級（震源から約150〜250km離れた範囲）</button>
-    <button data-level="chukyu">中級（震源から約250〜380km離れた範囲）</button>
-    <button data-level="jokyu">上級（震源から約380〜550km離れた範囲）</button>
+    <button data-level="shoshin">初心（震源から約100km以内。枠の中に震源があることも）</button>
+    <button data-level="shokyu">初級（震源から101〜150km離れた範囲）</button>
+    <button data-level="chukyu">中級（震源から151〜200km離れた範囲）</button>
+    <button data-level="jokyu">上級（震源から201〜250km離れた範囲）</button>
     <p class="muted">データ出典：気象庁 震度データベース ／ 地図：国土地理院</p>
   </div>
 </div>
@@ -181,10 +181,11 @@ function shuffle(a) {
 
 // 難易度ごとの表示範囲：震央から minKm〜maxKm 離れた場所を中心に、一辺 2*halfKm の四角い範囲だけ見せる
 const LEVELS = {
-  shoshin: { name: '初心', minKm: 60,  maxKm: 150, halfKm: 120, hideEpicenter: false },
-  shokyu:  { name: '初級', minKm: 150, maxKm: 250, halfKm: 110, hideEpicenter: true },
-  chukyu:  { name: '中級', minKm: 250, maxKm: 380, halfKm: 100, hideEpicenter: true },
-  jokyu:   { name: '上級', minKm: 380, maxKm: 550, halfKm: 100, hideEpicenter: true },
+  // 枠が小さいほど震源から近い位置でも震源を枠の外にできるので、近い難易度ほど枠を小さくしている
+  shoshin: { name: '初心', minKm: 30,  maxKm: 100, halfKm: 120, hideEpicenter: false },
+  shokyu:  { name: '初級', minKm: 101, maxKm: 150, halfKm: 60,  hideEpicenter: true },
+  chukyu:  { name: '中級', minKm: 151, maxKm: 200, halfKm: 85,  hideEpicenter: true },
+  jokyu:   { name: '上級', minKm: 201, maxKm: 250, halfKm: 110, hideEpicenter: true },
 };
 const MIN_POINTS = 15;
 
