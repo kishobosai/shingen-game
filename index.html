@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>震源あてゲーム</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085;
+    --accent: #d9302c; --border: #d0d5dd; --btn: #1d4ed8; --btn-text: #fff;
+    --line: #eaecf0; --chip: #e4e7ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12161f; --panel: #1a1f2b; --text: #e6e9ef; --muted: #98a2b3;
+      --border: #2f3646; --btn: #3b6ef0; --line: #2a3040; --chip: #2a3040; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12161f; --panel: #1a1f2b; --text: #e6e9ef; --muted: #98a2b3;
+    --border: #2f3646; --btn: #3b6ef0; --line: #2a3040; --chip: #2a3040; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  #status { font-size: 14px; color: var(--muted); }
+  .header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  #basemap { font: inherit; font-size: 14px; padding: 4px 6px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+  main { flex: 1; display: flex; min-height: 0; }
+  #map { flex: 1; min-height: 300px; }
+  aside {
+    width: 300px; padding: 16px; background: var(--panel);
+    border-left: 1px solid var(--border); overflow-y: auto;
+  }
+  aside h2 { font-size: 16px; margin: 0 0 8px; }
+  aside p { font-size: 14px; line-height: 1.6; margin: 0 0 12px; }
+  button {
+    font: inherit; font-size: 15px; padding: 10px 14px; border-radius: 8px;
+    border: none; background: var(--btn); color: var(--btn-text); cursor: pointer; width: 100%;
+  }
+  button:disabled { opacity: .4; cursor: default; }
+  button.secondary { background: var(--chip); color: var(--text); }
+  .stack > * + * { margin-top: 8px; }
+  .result-big { font-size: 28px; font-weight: bold; margin: 4px 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { padding: 4px 2px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.num { text-align: right; white-space: nowrap; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 16px; }
+  .legend span {
+    font-size: 11px; padding: 2px 5px; border-radius: 4px; color: #fff;
+    text-shadow: 0 0 2px rgba(0,0,0,.6);
+  }
+  #overlay {
+    position: fixed; inset: 0; background: rgba(15,20,30,.55);
+    display: flex; align-items: center; justify-content: center; z-index: 2000; padding: 16px;
+  }
+  #overlay .card {
+    background: var(--panel); border-radius: 12px; padding: 24px; max-width: 420px; width: 100%;
+  }
+  #overlay h2 { margin: 0 0 8px; }
+  #overlay p { font-size: 14px; line-height: 1.6; }
+  .hidden { display: none !important; }
+  .epi-icon { font-size: 34px; font-weight: bold; color: var(--accent); line-height: 34px; text-align: center;
+    text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
+  .guess-icon { width: 18px; height: 18px; border-radius: 50%; background: #1d4ed8;
+    border: 3px solid #fff; box-shadow: 0 0 0 1px #1d4ed8, 0 1px 4px rgba(0,0,0,.4); }
+  #map { background: #bcd8f2; }
+  @media (max-width: 720px) {
+    main { flex-direction: column; }
+    aside { width: 100%; border-left: none; border-top: 1px solid var(--border); max-height: 45vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>震源あてゲーム</h1>
+  <div class="header-right">
+    <label for="basemap" class="muted">地図</label>
+    <select id="basemap"></select>
+    <div id="status"></div>
+  </div>
+</header>
+<main>
+  <div id="map"></div>
+  <aside id="panel"></aside>
+</main>
+
+<div id="overlay">
+  <div class="card stack">
+    <h2>震源あてゲーム</h2>
+    <p>過去に実際に起きた地震の震度分布のうち、地図の一部分（青い枠の中）だけを表示します。震源だと思う場所を地図上でクリックしてください。全5問で、震源に近いほど高得点です。1問100点満点で、震源から5km離れるごとに1点減点（500km以上離れると0点）。最終スコアは5問の平均点（100点満点）です。</p>
+    <button data-level="easy">かんたん（震源の近く、枠内に震源があることも）</button>
+    <button data-level="normal">ふつう（震源から約200〜300km離れた範囲）</button>
+    <button data-level="hard">むずかしい（震源から約300〜500km離れた範囲）</button>
+    <p class="muted">データ出典：気象庁 震度データベース ／ 地図：国土地理院</p>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="quakes.js"></script>
+<script>
+const ROUNDS = 5;
+const JAPAN_BOUNDS = [[24, 122], [46, 147]];
+
+// 震度コード（気象庁震度データベースの char）→ 表示名・色・並び順
+const INT = {
+  '1': { label: '1',   color: '#9ab8d8', rank: 1 },
+  '2': { label: '2',   color: '#3e8fd1', rank: 2 },
+  '3': { label: '3',   color: '#2fa05a', rank: 3 },
+  '4': { label: '4',   color: '#e6c229', rank: 4 },
+  '5': { label: '5',   color: '#f08c1e', rank: 5 }, // 1996年以前の旧震度階級
+  'A': { label: '5弱', color: '#f08c1e', rank: 5 },
+  'B': { label: '5強', color: '#e0601a', rank: 6 },
+  '6': { label: '6',   color: '#d9302c', rank: 7 }, // 1996年以前の旧震度階級
+  'C': { label: '6弱', color: '#d9302c', rank: 7 },
+  'D': { label: '6強', color: '#a51c30', rank: 8 },
+  '7': { label: '7',   color: '#6b1b6b', rank: 9 },
+};
+
+const map = L.map('map', { zoomSnap: 0.5 }).fitBounds(JAPAN_BOUNDS);
+// 国土地理院の地図タイル。提供範囲外のズームでは近いズームのタイルを拡大・縮小して表示する
+const GSI_ATTR = '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>';
+const BASEMAPS = {
+  pale:  { name: '淡色地図', url: 'https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', maxNativeZoom: 18 },
+  std:   { name: '標準地図', url: 'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', maxNativeZoom: 18 },
+  blank: { name: '白地図',   url: 'https://cyberjapandata.gsi.go.jp/xyz/blank/{z}/{x}/{y}.png', maxNativeZoom: 14, minNativeZoom: 5 },
+  photo: { name: '航空写真', url: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', maxNativeZoom: 18 },
+};
+map.setMinZoom(4);
+map.setMaxZoom(16);
+let baseLayer = null;
+
+function setBasemap(key) {
+  const b = BASEMAPS[key] || BASEMAPS.pale;
+  if (baseLayer) map.removeLayer(baseLayer);
+  baseLayer = L.tileLayer(b.url, { maxZoom: 16, maxNativeZoom: b.maxNativeZoom, minNativeZoom: b.minNativeZoom || 0, attribution: GSI_ATTR }).addTo(map);
+  try { localStorage.setItem('basemap', key); } catch (e) {}
+}
+
+const basemapSelect = document.getElementById('basemap');
+for (const [key, b] of Object.entries(BASEMAPS)) basemapSelect.add(new Option(b.name, key));
+let savedBasemap = 'pale';
+try { savedBasemap = localStorage.getItem('basemap') || 'pale'; } catch (e) {}
+if (!BASEMAPS[savedBasemap]) savedBasemap = 'pale';
+basemapSelect.value = savedBasemap;
+setBasemap(savedBasemap);
+basemapSelect.addEventListener('change', () => setBasemap(basemapSelect.value));
+
+const pointLayer = L.layerGroup().addTo(map);
+const answerLayer = L.layerGroup().addTo(map);
+const panel = document.getElementById('panel');
+const statusEl = document.getElementById('status');
+
+let level, questions, round, results, current, guess, guessMarker, phase;
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// 難易度ごとの表示範囲：震央から minKm〜maxKm 離れた場所を中心に、一辺 2*halfKm の四角い範囲だけ見せる
+const LEVELS = {
+  easy:   { minKm: 60,  maxKm: 150, halfKm: 120, hideEpicenter: false },
+  normal: { minKm: 180, maxKm: 300, halfKm: 110, hideEpicenter: true },
+  hard:   { minKm: 320, maxKm: 500, halfKm: 100, hideEpicenter: true },
+};
+const MIN_POINTS = 15;
+
+function windowBounds(lat, lon, halfKm) {
+  const dLat = halfKm / 111;
+  const dLon = halfKm / (111 * Math.cos(lat * Math.PI / 180));
+  return L.latLngBounds([lat - dLat, lon - dLon], [lat + dLat, lon + dLon]);
+}
+
+// 震央から離れた観測点を1つ選び、その周辺の範囲を表示範囲にする。
+// 条件に合う範囲が見つからなければ距離の幅を広げて探し直す。
+function pickWindow(q) {
+  const cfg = LEVELS[level];
+  const withDist = q.pts.map(p => ({ p, d: distanceKm(q.lat, q.lon, p[0], p[1]) }));
+  let best = null;
+  for (let widen = 1; widen <= 8; widen *= 1.5) {
+    const lo = cfg.minKm / widen, hi = cfg.maxKm * widen;
+    const centers = shuffle(withDist.filter(x => x.d >= lo && x.d <= hi)).slice(0, 60);
+    for (const c of centers) {
+      const bounds = windowBounds(c.p[0], c.p[1], cfg.halfKm);
+      if (cfg.hideEpicenter && bounds.pad(0.1).contains([q.lat, q.lon])) continue;
+      const pts = q.pts.filter(p => bounds.contains([p[0], p[1]]));
+      if (!best || pts.length > best.pts.length) best = { bounds, pts };
+      if (pts.length >= MIN_POINTS) return { bounds, pts };
+    }
+  }
+  if (best) return best;
+  // どうしても見つからない場合は全体を見せる
+  return { bounds: null, pts: q.pts };
+}
+
+// 表示範囲の外側を暗くするマスク
+function drawMask(bounds) {
+  const world = [[-90, -360], [-90, 360], [90, 360], [90, -360]];
+  const hole = [bounds.getSouthWest(), bounds.getNorthWest(), bounds.getNorthEast(), bounds.getSouthEast()];
+  L.polygon([world, hole], {
+    stroke: false, fillColor: '#1d2330', fillOpacity: 0.35, interactive: false,
+  }).addTo(pointLayer);
+  L.rectangle(bounds, { color: '#1d4ed8', weight: 2, fill: false, interactive: false }).addTo(pointLayer);
+}
+
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function scoreFor(km) {
+  // 5km ごとに1点減点、500km 以上で0点
+  return Math.max(0, Math.round(100 - km / 5));
+}
+
+// ズームに応じてマーカーの大きさを変え、引いた表示で重なりすぎないようにする
+function markerRadius() {
+  const z = map.getZoom();
+  return z <= 5 ? 2.5 : z <= 6 ? 3.5 : z <= 7 ? 4.5 : 6;
+}
+
+// 色を白と混ぜて淡くする（半透明にすると重なった所が濃くなって見づらいため）
+function lighten(hex, t) {
+  const n = parseInt(hex.slice(1), 16);
+  const mix = c => Math.round(c + (255 - c) * t);
+  return `rgb(${mix(n >> 16)},${mix((n >> 8) & 255)},${mix(n & 255)})`;
+}
+
+// faded に含まれる観測点は淡い色で描く
+function drawPoints(pts, faded = new Set()) {
+  // 震度の強い観測点が上に来るよう弱い順に描く。淡い点は同じ震度の濃い点より下に描く
+  const order = p => INT[p[2]].rank * 2 + (faded.has(p) ? 0 : 1);
+  const sorted = pts.slice().sort((a, b) => order(a) - order(b));
+  const r = markerRadius();
+  for (const p of sorted) {
+    const [lat, lon, c] = p;
+    const f = faded.has(p);
+    L.circleMarker([lat, lon], {
+      radius: r, weight: f ? 0.5 : 1, color: f ? '#999' : '#333', opacity: 1,
+      fillColor: f ? lighten(INT[c].color, 0.55) : INT[c].color, fillOpacity: 1, interactive: false,
+    }).addTo(pointLayer);
+  }
+}
+
+map.on('zoomend', () => {
+  const r = markerRadius();
+  pointLayer.eachLayer(l => { if (l instanceof L.CircleMarker) l.setRadius(r); });
+});
+
+function legendHtml() {
+  const keys = ['1', '2', '3', '4', 'A', 'B', 'C', 'D', '7'];
+  return '<div class="legend">' +
+    keys.map(k => `<span style="background:${INT[k].color}">震度${INT[k].label}</span>`).join('') +
+    '</div>';
+}
+
+function startGame(lv) {
+  level = lv;
+  questions = shuffle(window.QUAKES.slice()).slice(0, ROUNDS);
+  round = 0;
+  results = [];
+  document.getElementById('overlay').classList.add('hidden');
+  startRound();
+}
+
+function startRound() {
+  current = questions[round];
+  guess = null;
+  guessMarker = null;
+  phase = 'guess';
+  pointLayer.clearLayers();
+  answerLayer.clearLayers();
+  map.fitBounds(JAPAN_BOUNDS);
+  const win = pickWindow(current);
+  current.shown = win.pts;
+  current.window = win.bounds;
+  if (win.bounds) {
+    drawMask(win.bounds);
+    map.fitBounds(win.bounds.pad(1.5), { maxZoom: 7 });
+  }
+  drawPoints(current.shown);
+  statusEl.textContent = `第${round + 1}問 / ${ROUNDS}　平均 ${average()}点`;
+  panel.innerHTML = `
+    <h2>第${round + 1}問</h2>
+    <p>青い枠の中の震度だけが見えています（${current.shown.length} 地点）。${LEVELS[level].hideEpicenter ? '震源は枠の外にあります。' : ''}震源だと思う場所を地図上でクリックしてください。</p>
+    <div class="stack">
+      <button id="submit" disabled>この場所で決定</button>
+    </div>
+    ${legendHtml()}`;
+  document.getElementById('submit').onclick = submitGuess;
+}
+
+map.on('click', e => {
+  if (phase !== 'guess') return;
+  guess = e.latlng;
+  if (guessMarker) guessMarker.setLatLng(guess);
+  else guessMarker = L.marker(guess, {
+    icon: L.divIcon({ className: '', html: '<div class="guess-icon"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }),
+  }).addTo(answerLayer);
+  document.getElementById('submit').disabled = false;
+});
+
+function submitGuess() {
+  if (!guess) return;
+  phase = 'result';
+  const q = current;
+  const km = distanceKm(guess.lat, guess.lng, q.lat, q.lon);
+  const score = scoreFor(km);
+  results.push({ q, km, score });
+
+  // マスクを外し、隠していた観測点も薄く表示する
+  const shownSet = new Set(q.shown);
+  pointLayer.clearLayers();
+  drawPoints(q.pts, new Set(q.pts.filter(p => !shownSet.has(p))));
+  if (q.window) {
+    L.rectangle(q.window, { color: '#1d4ed8', weight: 2, fill: false, interactive: false }).addTo(pointLayer);
+  }
+
+  const epi = L.marker([q.lat, q.lon], {
+    icon: L.divIcon({ className: 'epi-icon', html: '×', iconSize: [34, 34], iconAnchor: [17, 17] }),
+  }).addTo(answerLayer);
+  L.polyline([guess, [q.lat, q.lon]], { color: '#d9302c', dashArray: '6 6', weight: 2 }).addTo(answerLayer);
+  map.fitBounds(L.latLngBounds([guess, epi.getLatLng()]).pad(0.6), { maxZoom: 7 });
+
+  const last = round === ROUNDS - 1;
+  statusEl.textContent = `第${round + 1}問 / ${ROUNDS}　平均 ${average()}点`;
+  panel.innerHTML = `
+    <h2>答え合わせ</h2>
+    <div class="result-big">${score} 点 <span class="muted">/ 100点</span></div>
+    <p>震源との距離：<b>${km.toFixed(1)} km</b><br><span class="muted">5km離れるごとに1点減点（500km以上で0点）</span></p>
+    <p><b>${q.title}</b><br>
+      ${q.time}<br>
+      震央地名：${q.region}<br>
+      M${q.mag}　深さ ${q.depth}　最大${q.maxI}</p>
+    <p class="muted">×が震源（震央）、淡い色の点は隠れていた観測点です。</p>
+    <button id="next">${last ? '結果を見る' : '次の問題へ'}</button>
+    ${legendHtml()}`;
+  document.getElementById('next').onclick = () => {
+    round++;
+    if (round < ROUNDS) startRound(); else showFinal();
+  };
+}
+
+// 5問の平均点（100点満点）
+function average() {
+  if (!results.length) return 0;
+  return Math.round(results.reduce((s, r) => s + r.score, 0) / results.length);
+}
+
+function showFinal() {
+  phase = 'final';
+  pointLayer.clearLayers();
+  answerLayer.clearLayers();
+  map.fitBounds(JAPAN_BOUNDS);
+  for (const r of results) {
+    L.marker([r.q.lat, r.q.lon], {
+      icon: L.divIcon({ className: 'epi-icon', html: '×', iconSize: [34, 34], iconAnchor: [17, 17] }),
+    }).bindTooltip(r.q.title).addTo(answerLayer);
+  }
+  statusEl.textContent = `最終スコア ${average()}点`;
+  const rows = results.map((r, i) =>
+    `<tr><td>${i + 1}. ${r.q.title}</td><td class="num">${r.km.toFixed(0)} km</td><td class="num">${r.score}点</td></tr>`).join('');
+  panel.innerHTML = `
+    <h2>結果</h2>
+    <div class="result-big">${average()} 点 <span class="muted">/ 100点</span></div>
+    <p class="muted">5問の平均点です。</p>
+    <table>${rows}</table>
+    <div class="stack" style="margin-top:16px">
+      <button id="again">もう一度遊ぶ</button>
+    </div>`;
+  document.getElementById('again').onclick = () =>
+    document.getElementById('overlay').classList.remove('hidden');
+}
+
+document.querySelectorAll('#overlay button[data-level]').forEach(b =>
+  b.addEventListener('click', () => startGame(b.dataset.level)));
+</script>
+</body>
+</html>
