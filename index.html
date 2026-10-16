@@ -192,7 +192,6 @@ function windowBounds(lat, lon, halfKm) {
 function pickWindow(q) {
   const cfg = LEVELS[level];
   const withDist = q.pts.map(p => ({ p, d: distanceKm(q.lat, q.lon, p[0], p[1]) }));
-  let best = null;
   for (let widen = 1; widen <= 8; widen *= 1.5) {
     const lo = cfg.minKm / widen, hi = cfg.maxKm * widen;
     const centers = shuffle(withDist.filter(x => x.d >= lo && x.d <= hi)).slice(0, 60);
@@ -200,13 +199,11 @@ function pickWindow(q) {
       const bounds = windowBounds(c.p[0], c.p[1], cfg.halfKm);
       if (cfg.hideEpicenter && bounds.pad(0.1).contains([q.lat, q.lon])) continue;
       const pts = q.pts.filter(p => bounds.contains([p[0], p[1]]));
-      if (!best || pts.length > best.pts.length) best = { bounds, pts };
       if (pts.length >= MIN_POINTS) return { bounds, pts };
     }
   }
-  if (best) return best;
-  // どうしても見つからない場合は全体を見せる
-  return { bounds: null, pts: q.pts };
+  // 観測点が少なく条件に合う範囲が作れない地震は、この難易度では出題しない
+  return null;
 }
 
 // 表示範囲の外側を暗くするマスク
@@ -275,7 +272,13 @@ function legendHtml() {
 
 function startGame(lv) {
   level = lv;
-  questions = shuffle(window.QUAKES.slice()).slice(0, ROUNDS);
+  // 表示範囲を作れる地震だけを出題する
+  questions = [];
+  for (const q of shuffle(window.QUAKES.slice())) {
+    const win = pickWindow(q);
+    if (win) questions.push({ ...q, win });
+    if (questions.length === ROUNDS) break;
+  }
   round = 0;
   results = [];
   document.getElementById('overlay').classList.add('hidden');
@@ -290,7 +293,7 @@ function startRound() {
   pointLayer.clearLayers();
   answerLayer.clearLayers();
   map.fitBounds(JAPAN_BOUNDS);
-  const win = pickWindow(current);
+  const win = current.win;
   current.shown = win.pts;
   current.window = win.bounds;
   if (win.bounds) {
