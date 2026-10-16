@@ -36,6 +36,14 @@
   #status { font-size: 14px; color: var(--muted); }
   .header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
   button.quit { width: auto; padding: 4px 12px; font-size: 14px; background: var(--chip); color: var(--text); }
+  .modes { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 0;
+    display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+  .modes legend { padding: 0 4px; }
+  .modes label { cursor: pointer; }
+  .rules { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.6; }
+  .mag-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .mag-row input { flex: 1; min-width: 0; }
+  .mag-value { font-size: 22px; font-weight: bold; font-variant-numeric: tabular-nums; min-width: 4.5em; }
   .confirm { background: var(--chip); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
   .confirm p { margin: 0 0 8px; }
   .confirm .row { display: flex; gap: 8px; }
@@ -72,6 +80,7 @@
   }
   #overlay .card {
     background: var(--panel); border-radius: 12px; padding: 24px; max-width: 420px; width: 100%;
+    max-height: 100%; overflow-y: auto;
   }
   #overlay h2 { margin: 0 0 8px; }
   #overlay p { font-size: 14px; line-height: 1.6; }
@@ -105,11 +114,26 @@
 <div id="overlay">
   <div class="card stack">
     <h2>震源あてゲーム</h2>
-    <p>過去に実際に起きた地震の震度分布のうち、地図の一部分（青い枠の中）だけを表示します。震源だと思う場所を地図上でクリックしてください。全5問で、震源に近いほど高得点です。1問100点満点で、震源から5km離れるごとに1点減点（500km以上離れると0点）。最終スコアは5問の平均点（100点満点）です。</p>
-    <button data-level="shoshin">初心（震源から約100km以内。枠の中に震源があることも）</button>
-    <button data-level="shokyu">初級（震源から101〜150km離れた範囲）</button>
-    <button data-level="chukyu">中級（震源から151〜200km離れた範囲）</button>
-    <button data-level="jokyu">上級（震源から201〜250km離れた範囲）</button>
+    <fieldset class="modes">
+      <legend class="muted">モード</legend>
+      <label><input type="radio" name="mode" id="mode-partial" value="partial" checked> 一部分から震源を当てる</label>
+      <label><input type="radio" name="mode" id="mode-full" value="full"> 全体から震源と規模を当てる</label>
+    </fieldset>
+    <div id="partial-options" class="stack">
+      <p>過去に実際に起きた地震の震度分布のうち、地図の一部分（青い枠の中）だけを表示します。震源だと思う場所を地図上でクリックしてください。1問100点満点で、震源から5km離れるごとに1点減点（500km以上離れると0点）。最終スコアは5問の平均点です。</p>
+      <button data-level="shoshin">初心（震源から約100km以内。枠の中に震源があることも）</button>
+      <button data-level="shokyu">初級（震源から101〜150km離れた範囲）</button>
+      <button data-level="chukyu">中級（震源から151〜200km離れた範囲）</button>
+      <button data-level="jokyu">上級（震源から201〜250km離れた範囲）</button>
+    </div>
+    <div id="full-options" class="stack hidden">
+      <p>過去に実際に起きた地震の震度分布を全部表示します。震源だと思う場所を地図上でクリックし、規模（マグニチュード）を選んでください。1問100点満点で、内訳は次のとおりです。最終スコアは5問の平均点です。</p>
+      <ul class="rules">
+        <li>震源の位置：70点（5km離れるごとに1点減点、350km以上で0点）</li>
+        <li>規模：30点（マグニチュードが0.1ずれるごとに3点減点、1.0以上ずれると0点）</li>
+      </ul>
+      <button data-level="zentai">スタート</button>
+    </div>
     <p class="muted">データ出典：気象庁 震度データベース ／ 地図：国土地理院</p>
   </div>
 </div>
@@ -187,6 +211,8 @@ const LEVELS = {
   shokyu:  { name: '初級', minKm: 101, maxKm: 150, halfKm: 60,  hideEpicenter: true },
   chukyu:  { name: '中級', minKm: 151, maxKm: 200, halfKm: 60,  hideEpicenter: true },
   jokyu:   { name: '上級', minKm: 201, maxKm: 250, halfKm: 60,  hideEpicenter: true },
+  // 全体モード：震度分布をすべて見せ、震源の位置と規模を当てる
+  zentai:  { name: '全体', full: true },
 };
 const MIN_POINTS = 15;
 
@@ -236,6 +262,15 @@ function distanceKm(lat1, lon1, lat2, lon2) {
 function scoreFor(km) {
   // 5km ごとに1点減点、500km 以上で0点
   return Math.max(0, Math.round(100 - km / 5));
+}
+
+// 全体モードの採点：位置70点（5kmごとに1点減点）＋規模30点（M0.1ずれるごとに3点減点）
+function locationScoreFull(km) {
+  return Math.max(0, Math.round(70 - km / 5));
+}
+function magnitudeScore(guessMag, mag) {
+  const diff = Math.round(Math.abs(guessMag - mag) * 10) / 10;
+  return Math.max(0, Math.round(30 - diff * 30));
 }
 
 // ズームに応じてマーカーの大きさを変え、引いた表示で重なりすぎないようにする
@@ -291,10 +326,10 @@ function legendHtml() {
 
 function startGame(lv) {
   level = lv;
-  // 表示範囲を作れる地震だけを出題する
+  // 表示範囲を作れる地震だけを出題する（全体モードは全地震が対象）
   questions = [];
   for (const q of shuffle(window.QUAKES.slice())) {
-    const win = pickWindow(q);
+    const win = LEVELS[level].full ? { bounds: null, pts: q.pts } : pickWindow(q);
     if (win) questions.push({ ...q, win });
     if (questions.length === ROUNDS) break;
   }
@@ -315,18 +350,35 @@ function startRound() {
   const win = current.win;
   current.shown = win.pts;
   current.window = win.bounds;
-  fitBoundsNow(win.bounds.pad(1.5), { maxZoom: 7 });
-  drawMask(win.bounds);
+  if (LEVELS[level].full) {
+    // 震度分布の全体が収まるように表示する
+    fitBoundsNow(L.latLngBounds(current.pts.map(p => [p[0], p[1]])).pad(0.1), { maxZoom: 8 });
+  } else {
+    fitBoundsNow(win.bounds.pad(1.5), { maxZoom: 7 });
+    drawMask(win.bounds);
+  }
   drawPoints(current.shown);
   statusEl.textContent = `${LEVELS[level].name}　第${round + 1}問 / ${ROUNDS}　平均 ${average()}点`;
+  const guide = LEVELS[level].full
+    ? `震度分布の全体が見えています（${current.shown.length} 地点）。震源だと思う場所を地図上でクリックし、規模を選んでください。`
+    : `青い枠の中の震度だけが見えています（${current.shown.length} 地点）。${LEVELS[level].hideEpicenter ? '震源は枠の外にあります。' : ''}震源だと思う場所を地図上でクリックしてください。`;
+  const magInput = LEVELS[level].full ? `
+      <label for="mag" class="muted">規模（マグニチュード）</label>
+      <div class="mag-row">
+        <input type="range" id="mag" min="4.0" max="9.5" step="0.1" value="6.5">
+        <span class="mag-value" id="mag-value">M6.5</span>
+      </div>` : '';
   panel.innerHTML = `
     <h2>第${round + 1}問</h2>
-    <p>青い枠の中の震度だけが見えています（${current.shown.length} 地点）。${LEVELS[level].hideEpicenter ? '震源は枠の外にあります。' : ''}震源だと思う場所を地図上でクリックしてください。</p>
+    <p>${guide}</p>
+    ${magInput}
     <div class="stack">
       <button id="submit" disabled>この場所で決定</button>
     </div>
     ${legendHtml()}`;
   document.getElementById('submit').onclick = submitGuess;
+  const mag = document.getElementById('mag');
+  if (mag) mag.oninput = () => { document.getElementById('mag-value').textContent = 'M' + Number(mag.value).toFixed(1); };
 }
 
 map.on('click', e => {
@@ -344,8 +396,25 @@ function submitGuess() {
   phase = 'result';
   const q = current;
   const km = distanceKm(guess.lat, guess.lng, q.lat, q.lon);
-  const score = scoreFor(km);
-  results.push({ q, km, score });
+  const full = LEVELS[level].full;
+  let score, scoreDetail;
+  if (full) {
+    const guessMag = Number(document.getElementById('mag').value);
+    const locPts = locationScoreFull(km);
+    const magPts = magnitudeScore(guessMag, Number(q.mag));
+    score = locPts + magPts;
+    results.push({ q, km, score, guessMag });
+    scoreDetail = `
+    <table>
+      <tr><td>震源の位置</td><td class="num">${km.toFixed(1)} km ずれ</td><td class="num">${locPts} / 70点</td></tr>
+      <tr><td>規模</td><td class="num">あなた M${guessMag.toFixed(1)} → 正解 M${q.mag}</td><td class="num">${magPts} / 30点</td></tr>
+    </table>
+    <p class="muted">位置は5km離れるごとに1点減点（350km以上で0点）、規模はM0.1ずれるごとに3点減点です。</p>`;
+  } else {
+    score = scoreFor(km);
+    results.push({ q, km, score });
+    scoreDetail = `<p>震源との距離：<b>${km.toFixed(1)} km</b><br><span class="muted">5km離れるごとに1点減点（500km以上で0点）</span></p>`;
+  }
 
   // マスクを外し、隠していた観測点も薄く表示する
   const shownSet = new Set(q.shown);
@@ -366,12 +435,12 @@ function submitGuess() {
   panel.innerHTML = `
     <h2>答え合わせ</h2>
     <div class="result-big">${score} 点 <span class="muted">/ 100点</span></div>
-    <p>震源との距離：<b>${km.toFixed(1)} km</b><br><span class="muted">5km離れるごとに1点減点（500km以上で0点）</span></p>
+    ${scoreDetail}
     <p><b>${q.title}</b><br>
       ${q.time}<br>
       震央地名：${q.region}<br>
       M${q.mag}　深さ ${q.depth}　最大${q.maxI}</p>
-    <p class="muted">×が震源（震央）、淡い色の点は隠れていた観測点です。</p>
+    <p class="muted">×が震源（震央）${full ? '' : '、淡い色の点は隠れていた観測点'}です。</p>
     <button id="next">${last ? '結果を見る' : '次の問題へ'}</button>
     ${legendHtml()}`;
   document.getElementById('next').onclick = () => {
@@ -432,7 +501,7 @@ function showFinal(interrupted = false) {
   }
   statusEl.textContent = `最終スコア ${average()}点`;
   const rows = results.map((r, i) =>
-    `<tr><td>${i + 1}. ${r.q.title}</td><td class="num">${r.km.toFixed(0)} km</td><td class="num">${r.score}点</td></tr>`).join('');
+    `<tr><td>${i + 1}. ${r.q.title}</td><td class="num">${r.km.toFixed(0)} km${r.guessMag !== undefined ? `<br>M${r.guessMag.toFixed(1)}→${r.q.mag}` : ''}</td><td class="num">${r.score}点</td></tr>`).join('');
   panel.innerHTML = `
     <h2>結果</h2>
     <div class="result-big">${average()} 点 <span class="muted">/ 100点</span></div>
@@ -444,6 +513,15 @@ function showFinal(interrupted = false) {
   document.getElementById('again').onclick = () =>
     document.getElementById('overlay').classList.remove('hidden');
 }
+
+// スタート画面のモード切り替え
+function updateModeOptions() {
+  const full = document.getElementById('mode-full').checked;
+  document.getElementById('partial-options').classList.toggle('hidden', full);
+  document.getElementById('full-options').classList.toggle('hidden', !full);
+}
+document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', updateModeOptions));
+updateModeOptions();
 
 document.querySelectorAll('#overlay button[data-level]').forEach(b =>
   b.addEventListener('click', () => startGame(b.dataset.level)));
