@@ -41,6 +41,15 @@
   .modes legend { padding: 0 4px; }
   .modes label { cursor: pointer; }
   .rules { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.6; }
+  .choices { border: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
+  .choices legend { padding: 0; margin-bottom: 4px; }
+  .choices label { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 15px;
+    border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+  .choices label:has(input:checked) { border-color: var(--btn); box-shadow: 0 0 0 1px var(--btn); }
+  .region-label { background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    font-size: 12px; padding: 2px 6px; box-shadow: none; }
+  .region-label.correct { border-color: #2fa05a; font-weight: bold; }
+  .region-label.wrong { border-color: #d9302c; }
   .mag-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
   .mag-row input { flex: 1; min-width: 0; }
   .mag-value { font-size: 22px; font-weight: bold; font-variant-numeric: tabular-nums; min-width: 4.5em; }
@@ -117,7 +126,7 @@
     <fieldset class="modes">
       <legend class="muted">モード</legend>
       <label><input type="radio" name="mode" id="mode-partial" value="partial" checked> 一部分から震源を当てる</label>
-      <label><input type="radio" name="mode" id="mode-full" value="full"> 全体から震源と規模を当てる</label>
+      <label><input type="radio" name="mode" id="mode-full" value="full"> 全体から震源地と規模を当てる</label>
     </fieldset>
     <div id="partial-options" class="stack">
       <p>過去に実際に起きた地震の震度分布のうち、地図の一部分（青い枠の中）だけを表示します。震源だと思う場所を地図上でクリックしてください。1問100点満点で、震源から5km離れるごとに1点減点（500km以上離れると0点）。最終スコアは5問の平均点です。</p>
@@ -127,9 +136,9 @@
       <button data-level="jokyu">上級（震源から201〜250km離れた範囲）</button>
     </div>
     <div id="full-options" class="stack hidden">
-      <p>過去に実際に起きた地震の震度分布を全部表示します。震源だと思う場所を地図上でクリックし、規模（マグニチュード）を選んでください。1問100点満点で、内訳は次のとおりです。最終スコアは5問の平均点です。</p>
+      <p>過去に実際に起きた地震の震度分布を全部表示します。震源地（気象庁の震央地名）を5つの候補から選び、規模（マグニチュード）を選んでください。1問100点満点で、内訳は次のとおりです。最終スコアは5問の平均点です。</p>
       <ul class="rules">
-        <li>震源の位置：70点（5km離れるごとに1点減点、350km以上で0点）</li>
+        <li>震源地：70点（正解なら70点、不正解なら0点）</li>
         <li>規模：30点（マグニチュードが0.1ずれるごとに3点減点、1.0以上ずれると0点）</li>
       </ul>
       <button data-level="zentai">スタート</button>
@@ -140,6 +149,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="quakes.js?v=2"></script>
+<script src="regions.js?v=1"></script>
 <script>
 const ROUNDS = 5;
 const JAPAN_BOUNDS = [[24, 122], [46, 147]];
@@ -264,10 +274,8 @@ function scoreFor(km) {
   return Math.max(0, Math.round(100 - km / 5));
 }
 
-// 全体モードの採点：位置70点（5kmごとに1点減点）＋規模30点（M0.1ずれるごとに3点減点）
-function locationScoreFull(km) {
-  return Math.max(0, Math.round(70 - km / 5));
-}
+// 全体モードの採点：震源地70点（正解なら満点）＋規模30点（M0.1ずれるごとに3点減点）
+const REGION_POINTS = 70;
 function magnitudeScore(guessMag, mag) {
   const diff = Math.round(Math.abs(guessMag - mag) * 10) / 10;
   return Math.max(0, Math.round(30 - diff * 30));
@@ -324,13 +332,24 @@ function legendHtml() {
     '</div>';
 }
 
+// 震源地の候補：正解の震央地名と、実際の震央から代表地点が近い順に4つの震央地名
+function regionChoices(q) {
+  const others = Object.entries(window.REGIONS)
+    .filter(([name]) => name !== q.region)
+    .map(([name, [lat, lon]]) => ({ name, d: distanceKm(q.lat, q.lon, lat, lon) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 4)
+    .map(x => x.name);
+  return shuffle([q.region, ...others]);
+}
+
 function startGame(lv) {
   level = lv;
   // 表示範囲を作れる地震だけを出題する（全体モードは全地震が対象）
   questions = [];
   for (const q of shuffle(window.QUAKES.slice())) {
     const win = LEVELS[level].full ? { bounds: null, pts: q.pts } : pickWindow(q);
-    if (win) questions.push({ ...q, win });
+    if (win) questions.push({ ...q, win, choices: LEVELS[level].full ? regionChoices(q) : null });
     if (questions.length === ROUNDS) break;
   }
   round = 0;
@@ -360,8 +379,14 @@ function startRound() {
   drawPoints(current.shown);
   statusEl.textContent = `${LEVELS[level].name}　第${round + 1}問 / ${ROUNDS}　平均 ${average()}点`;
   const guide = LEVELS[level].full
-    ? `震度分布の全体が見えています（${current.shown.length} 地点）。震源だと思う場所を地図上でクリックし、規模を選んでください。`
+    ? `震度分布の全体が見えています（${current.shown.length} 地点）。震源地と規模を選んでください。`
     : `青い枠の中の震度だけが見えています（${current.shown.length} 地点）。${LEVELS[level].hideEpicenter ? '震源は枠の外にあります。' : ''}震源だと思う場所を地図上でクリックしてください。`;
+  const choiceInput = LEVELS[level].full ? `
+      <fieldset class="choices">
+        <legend class="muted">震源地</legend>
+        ${current.choices.map((name, i) => `
+        <label><input type="radio" name="region" id="region-${i}" value="${name}"> ${name}</label>`).join('')}
+      </fieldset>` : '';
   const magInput = LEVELS[level].full ? `
       <label for="mag" class="muted">規模（マグニチュード）</label>
       <div class="mag-row">
@@ -371,18 +396,22 @@ function startRound() {
   panel.innerHTML = `
     <h2>第${round + 1}問</h2>
     <p>${guide}</p>
+    ${choiceInput}
     ${magInput}
     <div class="stack">
-      <button id="submit" disabled>この場所で決定</button>
+      <button id="submit" disabled>${LEVELS[level].full ? 'これで決定' : 'この場所で決定'}</button>
     </div>
     ${legendHtml()}`;
   document.getElementById('submit').onclick = submitGuess;
   const mag = document.getElementById('mag');
   if (mag) mag.oninput = () => { document.getElementById('mag-value').textContent = 'M' + Number(mag.value).toFixed(1); };
+  panel.querySelectorAll('input[name="region"]').forEach(r => r.addEventListener('change', () => {
+    document.getElementById('submit').disabled = false;
+  }));
 }
 
 map.on('click', e => {
-  if (phase !== 'guess') return;
+  if (phase !== 'guess' || LEVELS[level].full) return;
   guess = e.latlng;
   if (guessMarker) guessMarker.setLatLng(guess);
   else guessMarker = L.marker(guess, {
@@ -392,25 +421,27 @@ map.on('click', e => {
 });
 
 function submitGuess() {
-  if (!guess) return;
+  const full = LEVELS[level].full;
+  const picked = panel.querySelector('input[name="region"]:checked');
+  if (full ? !picked : !guess) return;
   phase = 'result';
   const q = current;
-  const km = distanceKm(guess.lat, guess.lng, q.lat, q.lon);
-  const full = LEVELS[level].full;
-  let score, scoreDetail;
+  let score, scoreDetail, km;
   if (full) {
+    const guessRegion = picked.value;
     const guessMag = Number(document.getElementById('mag').value);
-    const locPts = locationScoreFull(km);
+    const regionPts = guessRegion === q.region ? REGION_POINTS : 0;
     const magPts = magnitudeScore(guessMag, Number(q.mag));
-    score = locPts + magPts;
-    results.push({ q, km, score, guessMag });
+    score = regionPts + magPts;
+    results.push({ q, score, guessRegion, guessMag });
     scoreDetail = `
     <table>
-      <tr><td>震源の位置</td><td class="num">${km.toFixed(1)} km ずれ</td><td class="num">${locPts} / 70点</td></tr>
-      <tr><td>規模</td><td class="num">あなた M${guessMag.toFixed(1)} → 正解 M${q.mag}</td><td class="num">${magPts} / 30点</td></tr>
+      <tr><td>震源地</td><td>${guessRegion === q.region ? '○' : '×'} ${guessRegion}${guessRegion === q.region ? '' : `<br>正解：${q.region}`}</td><td class="num">${regionPts} / 70点</td></tr>
+      <tr><td>規模</td><td>あなた M${guessMag.toFixed(1)}<br>正解 M${q.mag}</td><td class="num">${magPts} / 30点</td></tr>
     </table>
-    <p class="muted">位置は5km離れるごとに1点減点（350km以上で0点）、規模はM0.1ずれるごとに3点減点です。</p>`;
+    <p class="muted">規模はM0.1ずれるごとに3点減点（1.0以上ずれると0点）です。</p>`;
   } else {
+    km = distanceKm(guess.lat, guess.lng, q.lat, q.lon);
     score = scoreFor(km);
     results.push({ q, km, score });
     scoreDetail = `<p>震源との距離：<b>${km.toFixed(1)} km</b><br><span class="muted">5km離れるごとに1点減点（500km以上で0点）</span></p>`;
@@ -427,8 +458,23 @@ function submitGuess() {
   const epi = L.marker([q.lat, q.lon], {
     icon: L.divIcon({ className: 'epi-icon', html: '×', iconSize: [34, 34], iconAnchor: [17, 17] }),
   }).addTo(answerLayer);
-  L.polyline([guess, [q.lat, q.lon]], { color: '#d9302c', dashArray: '6 6', weight: 2 }).addTo(answerLayer);
-  fitBoundsNow(L.latLngBounds([guess, epi.getLatLng()]).pad(0.6), { maxZoom: 7, animate: true });
+  if (full) {
+    // 5つの候補の震央地名を代表地点に表示する（正解は緑、選んだ不正解は赤の枠）
+    const guessRegion = results[results.length - 1].guessRegion;
+    const spots = [epi.getLatLng()];
+    for (const name of q.choices) {
+      const [lat, lon] = window.REGIONS[name];
+      spots.push(L.latLng(lat, lon));
+      const cls = name === q.region ? 'correct' : name === guessRegion ? 'wrong' : '';
+      L.circleMarker([lat, lon], { radius: 4, color: '#1d2330', weight: 1, fillColor: '#fff', fillOpacity: 1, interactive: false })
+        .bindTooltip(name, { permanent: true, direction: 'top', className: `region-label ${cls}` })
+        .addTo(answerLayer);
+    }
+    fitBoundsNow(L.latLngBounds(spots).pad(0.4), { maxZoom: 8, animate: true });
+  } else {
+    L.polyline([guess, [q.lat, q.lon]], { color: '#d9302c', dashArray: '6 6', weight: 2 }).addTo(answerLayer);
+    fitBoundsNow(L.latLngBounds([guess, epi.getLatLng()]).pad(0.6), { maxZoom: 7, animate: true });
+  }
 
   const last = round === ROUNDS - 1;
   statusEl.textContent = `${LEVELS[level].name}　第${round + 1}問 / ${ROUNDS}　平均 ${average()}点`;
@@ -440,7 +486,7 @@ function submitGuess() {
       ${q.time}<br>
       震央地名：${q.region}<br>
       M${q.mag}　深さ ${q.depth}　最大${q.maxI}</p>
-    <p class="muted">×が震源（震央）${full ? '' : '、淡い色の点は隠れていた観測点'}です。</p>
+    <p class="muted">×が震源（震央）${full ? '、白い点は候補の震央地名の代表地点' : '、淡い色の点は隠れていた観測点'}です。</p>
     <button id="next">${last ? '結果を見る' : '次の問題へ'}</button>
     ${legendHtml()}`;
   document.getElementById('next').onclick = () => {
@@ -501,7 +547,7 @@ function showFinal(interrupted = false) {
   }
   statusEl.textContent = `最終スコア ${average()}点`;
   const rows = results.map((r, i) =>
-    `<tr><td>${i + 1}. ${r.q.title}</td><td class="num">${r.km.toFixed(0)} km${r.guessMag !== undefined ? `<br>M${r.guessMag.toFixed(1)}→${r.q.mag}` : ''}</td><td class="num">${r.score}点</td></tr>`).join('');
+    `<tr><td>${i + 1}. ${r.q.title}</td><td class="num">${r.guessRegion !== undefined ? `${r.guessRegion === r.q.region ? '○' : '×'} ${r.guessRegion}<br>M${r.guessMag.toFixed(1)}→${r.q.mag}` : `${r.km.toFixed(0)} km`}</td><td class="num">${r.score}点</td></tr>`).join('');
   panel.innerHTML = `
     <h2>結果</h2>
     <div class="result-big">${average()} 点 <span class="muted">/ 100点</span></div>
