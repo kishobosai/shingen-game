@@ -181,11 +181,12 @@ function shuffle(a) {
 
 // 難易度ごとの表示範囲：震央から minKm〜maxKm 離れた場所を中心に、一辺 2*halfKm の四角い範囲だけ見せる
 const LEVELS = {
-  // 枠が小さいほど震源から近い位置でも震源を枠の外にできるので、近い難易度ほど枠を小さくしている
+  // 初級〜上級は枠の大きさをそろえ、震源からの距離だけで難しさが変わるようにしている。
+  // 枠の一辺は、初級の最短距離（101km）でも震源が枠の外に出る大きさ（約120km）にしている
   shoshin: { name: '初心', minKm: 30,  maxKm: 100, halfKm: 120, hideEpicenter: false },
   shokyu:  { name: '初級', minKm: 101, maxKm: 150, halfKm: 60,  hideEpicenter: true },
-  chukyu:  { name: '中級', minKm: 151, maxKm: 200, halfKm: 85,  hideEpicenter: true },
-  jokyu:   { name: '上級', minKm: 201, maxKm: 250, halfKm: 110, hideEpicenter: true },
+  chukyu:  { name: '中級', minKm: 151, maxKm: 200, halfKm: 60,  hideEpicenter: true },
+  jokyu:   { name: '上級', minKm: 201, maxKm: 250, halfKm: 60,  hideEpicenter: true },
 };
 const MIN_POINTS = 15;
 
