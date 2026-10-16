@@ -115,7 +115,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="quakes.js"></script>
+<script src="quakes.js?v=2"></script>
 <script>
 const ROUNDS = 5;
 const JAPAN_BOUNDS = [[24, 122], [46, 147]];
@@ -272,6 +272,16 @@ map.on('zoomend', () => {
   pointLayer.eachLayer(l => { if (l instanceof L.CircleMarker) l.setRadius(r); });
 });
 
+// Leaflet はズームのアニメーション中に呼ばれた表示変更を無視する。
+// 以前は問題の開始時に「日本全体 → 枠の周辺」と続けて表示を変えていたため、2問目以降は
+// 枠に寄らないまま止まっていた。答え合わせのズーム中に次へ進んだ場合も同じことが起きるので、
+// アニメーションが終わるのを待ってから表示を変える（指定がなければアニメーションなし）
+function fitBoundsNow(bounds, options = {}) {
+  const apply = () => map.fitBounds(bounds, { animate: false, ...options });
+  if (map._animatingZoom) map.once('zoomend', apply);
+  else apply();
+}
+
 function legendHtml() {
   const keys = ['1', '2', '3', '4', 'A', 'B', 'C', 'D', '7'];
   return '<div class="legend">' +
@@ -302,14 +312,11 @@ function startRound() {
   phase = 'guess';
   pointLayer.clearLayers();
   answerLayer.clearLayers();
-  map.fitBounds(JAPAN_BOUNDS);
   const win = current.win;
   current.shown = win.pts;
   current.window = win.bounds;
-  if (win.bounds) {
-    drawMask(win.bounds);
-    map.fitBounds(win.bounds.pad(1.5), { maxZoom: 7 });
-  }
+  fitBoundsNow(win.bounds.pad(1.5), { maxZoom: 7 });
+  drawMask(win.bounds);
   drawPoints(current.shown);
   statusEl.textContent = `${LEVELS[level].name}　第${round + 1}問 / ${ROUNDS}　平均 ${average()}点`;
   panel.innerHTML = `
@@ -352,7 +359,7 @@ function submitGuess() {
     icon: L.divIcon({ className: 'epi-icon', html: '×', iconSize: [34, 34], iconAnchor: [17, 17] }),
   }).addTo(answerLayer);
   L.polyline([guess, [q.lat, q.lon]], { color: '#d9302c', dashArray: '6 6', weight: 2 }).addTo(answerLayer);
-  map.fitBounds(L.latLngBounds([guess, epi.getLatLng()]).pad(0.6), { maxZoom: 7 });
+  fitBoundsNow(L.latLngBounds([guess, epi.getLatLng()]).pad(0.6), { maxZoom: 7, animate: true });
 
   const last = round === ROUNDS - 1;
   statusEl.textContent = `${LEVELS[level].name}　第${round + 1}問 / ${ROUNDS}　平均 ${average()}点`;
@@ -406,7 +413,7 @@ function quitGame() {
   quitBtn.classList.add('hidden');
   pointLayer.clearLayers();
   answerLayer.clearLayers();
-  map.fitBounds(JAPAN_BOUNDS);
+  fitBoundsNow(JAPAN_BOUNDS);
   statusEl.textContent = '';
   panel.innerHTML = '';
   document.getElementById('overlay').classList.remove('hidden');
@@ -417,7 +424,7 @@ function showFinal(interrupted = false) {
   quitBtn.classList.add('hidden');
   pointLayer.clearLayers();
   answerLayer.clearLayers();
-  map.fitBounds(JAPAN_BOUNDS);
+  fitBoundsNow(JAPAN_BOUNDS);
   for (const r of results) {
     L.marker([r.q.lat, r.q.lon], {
       icon: L.divIcon({ className: 'epi-icon', html: '×', iconSize: [34, 34], iconAnchor: [17, 17] }),
